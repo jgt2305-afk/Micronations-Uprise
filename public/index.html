@@ -1,0 +1,69 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Micronation Simulator</title>
+<style>
+:root{--bg:#0f1720;--card:#182330;--tx:#e6edf3;--mu:#8b9bab;--ac:#4cc9a0;--rd:#e5484d}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--tx);padding:16px;max-width:1100px;margin:auto}
+h1{margin:0 0 12px}h2{margin:0 0 8px;font-size:16px;color:var(--ac)}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.c{background:var(--card);border-radius:10px;padding:14px;margin-bottom:12px}
+input,select,textarea,button{width:100%;margin:3px 0;padding:8px;border-radius:6px;border:1px solid #2c3b4c;background:#0f1720;color:var(--tx);font:inherit}
+button{background:var(--ac);color:#062;border:0;cursor:pointer;font-weight:600}button.r{background:var(--rd);color:#fff}
+table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;text-align:left;border-bottom:1px solid #22303f}th{color:var(--mu)}
+.tbl{overflow-x:auto}.mu{color:var(--mu)}.p{color:#f5a623}.log{font-size:12px;color:var(--mu)}
+</style></head><body>
+<h1>🏴 Micronation Simulator <span class="mu" style="font-size:12px">live · updates every 4s</span></h1>
+<div id="msg" class="c" style="display:none"></div>
+<div class="g">
+<div class="c" id="me"></div>
+<div class="c"><h2>Add land / troops / navy / bases</h2>
+<select id="at"><option>land</option><option>troops</option><option>navy</option><option>base</option></select>
+<input id="an" placeholder="Name (e.g. Northern Territory)"><input id="aq" type="number" placeholder="Amount (km² / soldiers / ships / bases)">
+<input id="alat" placeholder="Latitude (land/base)"><input id="alng" placeholder="Longitude (land/base)">
+<textarea id="ar" placeholder="Reason (needed if you exceed limits)"></textarea><button onclick="addAsset()">Add</button>
+<p class="mu">Limits: land 50 km², navy 5, bases 3, troops = your calculated potential. Above that requires email approval.</p></div>
+<div class="c"><h2>Laws</h2><input id="lt" placeholder="Law title"><textarea id="lb" placeholder="Text"></textarea><button onclick="addLaw()">Enact law</button><div id="laws"></div></div>
+<div class="c"><h2>⚔️ Declare war</h2><select id="wd"></select><input id="wr" placeholder="Reason / casus belli"><button class="r" onclick="declare()">Declare war</button><div id="wars"></div></div>
+</div>
+<div class="c tbl"><h2>World</h2><table id="world"></table></div>
+<div class="c"><h2>Pending approvals <span class="mu">(admin key:</span> <input id="ak" style="width:160px;display:inline" type="password"><span class="mu">)</span></h2><div id="pend"></div></div>
+<script>
+let S={nations:[],assets:[],laws:[],wars:[]},my=JSON.parse(localStorage.me||'null');
+const $=i=>document.getElementById(i),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api=(u,m='GET',b,h={})=>fetch('/api'+u,{method:m,headers:{'content-type':'application/json','x-token':my?.token||'','x-admin-key':$('ak').value,...h},body:b&&JSON.stringify(b)}).then(r=>r.json());
+const say=h=>{$('msg').style.display='block';$('msg').innerHTML=h};
+const nm=id=>S.nations.find(n=>n.id==id)?.name||'?';
+async function load(){S=await api('/state');render()}
+function render(){
+ const m=S.nations.find(n=>n.id==my?.id);
+ $('me').innerHTML=m?`<h2>${esc(m.name)}</h2><div class="mu">Leader: ${esc(m.leader)}</div>
+  <p>Land ${m.land} km² · Troops ${m.troops}/${m.potential} · Navy ${m.navy} · Bases ${m.bases}</p>
+  <label class="mu">Population</label><input id="pp" type="number" value="${m.population}">
+  <label class="mu">Economy (1-10)</label><input id="pe" type="number" value="${m.economy}">
+  <label class="mu">Resources (1-10)</label><input id="pr" type="number" value="${m.resources}">
+  <label class="mu">Climate</label><select id="pc">${['temperate','tropical','arid','arctic','mountain'].map(c=>`<option ${c==m.climate?'selected':''}>${c}</option>`).join('')}</select>
+  <button onclick="upd()">Update</button><p class="mu">Troop potential = population × climate × economy × resources × land.</p>`
+ :`<h2>Found your micronation</h2><input id="cn" placeholder="Nation name"><input id="cl" placeholder="Leader"><input id="cp" type="number" placeholder="Population">
+  <input id="ce" type="number" placeholder="Economy 1-10"><input id="cr" type="number" placeholder="Resources 1-10">
+  <select id="cc"><option>temperate</option><option>tropical</option><option>arid</option><option>arctic</option><option>mountain</option></select><button onclick="found()">Create nation</button>`;
+ $('wd').innerHTML=S.nations.filter(n=>n.id!=my?.id).map(n=>`<option value="${n.id}">${esc(n.name)}</option>`).join('');
+ $('world').innerHTML='<tr><th>Nation</th><th>Pop</th><th>Land</th><th>Troops</th><th>Navy</th><th>Bases</th><th>Climate</th><th>Eco</th><th>Res</th></tr>'+
+  S.nations.map(n=>`<tr><td>${esc(n.name)}</td><td>${n.population}</td><td>${n.land}</td><td>${n.troops}</td><td>${n.navy}</td><td>${n.bases}</td><td>${n.climate}</td><td>${n.economy}</td><td>${n.resources}</td></tr>`).join('');
+ $('laws').innerHTML=S.laws.map(l=>`<p><b>${esc(l.title)}</b> <span class="mu">— ${esc(nm(l.nation_id))}</span><br>${esc(l.body)}</p>`).join('');
+ $('wars').innerHTML=S.wars.map(w=>`<p><b>${esc(nm(w.attacker))} ⚔ ${esc(nm(w.defender))}</b> [${w.status}]<br><span class="mu">${esc(w.reason)}</span>
+  ${w.status=='active'&&w.attacker==my?.id?`<button onclick="rnd(${w.id})">Fight a round</button><button class="r" onclick="endWar(${w.id})">Ceasefire</button>`:''}
+  <span class="log">${w.log.slice(-3).map(l=>'<br>'+esc(l.text)).join('')}</span></p>`).join('');
+ $('pend').innerHTML=S.assets.filter(a=>a.status=='pending').map(a=>`<p class="p">#${a.id} ${esc(nm(a.nation_id))}: ${a.qty} ${a.type} — ${esc(a.reason||'no reason')}
+  <button style="width:auto" onclick="dec(${a.id},'approve')">Approve</button> <button class="r" style="width:auto" onclick="dec(${a.id},'reject')">Reject</button></p>`).join('')||'<span class="mu">None</span>';
+}
+async function found(){const r=await api('/nations','POST',{name:$('cn').value,leader:$('cl').value,population:$('cp').value,economy:$('ce').value,resources:$('cr').value,climate:$('cc').value});
+ if(r.error)return say(esc(r.error));my=r;localStorage.me=JSON.stringify(r);load()}
+async function upd(){await api('/nations/'+my.id,'PATCH',{population:$('pp').value,economy:$('pe').value,resources:$('pr').value,climate:$('pc').value});load()}
+async function addAsset(){const r=await api(`/nations/${my.id}/assets`,'POST',{type:$('at').value,name:$('an').value,qty:$('aq').value,lat:$('alat').value,lng:$('alng').value,reason:$('ar').value});
+ if(r.error)say(esc(r.error));else if(r.status=='pending')say(`⚠️ Over your limit (${r.limit}). Request is <b>pending</b>. Please email your reasoning: <a style="color:var(--ac)" href="${r.mailto}">send email to admin</a>`);else say('✅ Added');load()}
+async function addLaw(){await api(`/nations/${my.id}/laws`,'POST',{title:$('lt').value,body:$('lb').value});load()}
+async function declare(){const r=await api('/wars','POST',{attacker:my.id,defender:$('wd').value,reason:$('wr').value});if(r.error)say(esc(r.error));load()}
+async function rnd(id){await api(`/wars/${id}/round`,'POST');load()}
+async function endWar(id){await api(`/wars/${id}/end`,'POST');load()}
+async function dec(id,d){const r=await api(`/admin/assets/${id}/${d}`,'POST');if(r.error)say(esc(r.error));load()}
+load();setInterval(load,4000);
+</script></body></html>
